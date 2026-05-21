@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; script-src 'self' 'unsafe-eval'; worker-src 'self' blob:; child-src 'self' blob:;"
+    />
+    <title>Ostro</title>
+    <link rel="stylesheet" href="styles/main.css" />
+    <link rel="stylesheet" href="styles/theme-dark.css" />
+    <link rel="stylesheet" href="../../node_modules/xterm/css/xterm.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="titlebar">
+        <div class="titlebar-left">
+          <div class="logo">ostro</div>
+          <button class="btn-ghost" id="btn-open-workspace">Open Folder</button>
+          <button class="btn-ghost" id="btn-settings">Settings</button>
+        </div>
+        <div class="titlebar-right">
+          <span class="status" id="status">ready</span>
+          <button class="btn-ghost btn-icon" id="btn-toggle-chat" title="Toggle AI panel (Ctrl+J)" aria-label="Toggle AI panel">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              <circle cx="9" cy="10" r="1" fill="currentColor"/>
+              <circle cx="13" cy="10" r="1" fill="currentColor"/>
+              <circle cx="17" cy="10" r="1" fill="currentColor"/>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="workbench">
+        <aside class="sidebar" id="sidebar">
+          <div class="sidebar-header">EXPLORER</div>
+          <div class="file-tree" id="file-tree">
+            <div class="empty-state">No folder opened</div>
+          </div>
+        </aside>
+
+        <section class="editor-zone">
+          <div class="tab-bar" id="tab-bar"></div>
+          <div class="editor-host" id="editor-host"></div>
+          <div class="terminal-host" id="terminal-host"></div>
+        </section>
+
+        <aside class="chat-panel" id="chat-panel">
+          <div class="chat-header">
+            <span>AI · <span id="active-model">claude-sonnet-4-6</span></span>
+            <button class="btn-ghost" id="btn-clear-chat">Clear</button>
+          </div>
+          <div class="chat-messages" id="chat-messages"></div>
+          <div class="chat-input-container">
+            <div class="chat-attachments" id="chat-attachments"></div>
+            <div class="chat-input-row">
+              <textarea
+                id="chat-input"
+                placeholder="Ask Ostro to do something… (@ to attach a file, Enter to send)"
+                rows="2"
+              ></textarea>
+              <div class="chat-input-actions">
+                <button class="btn-ghost btn-attach" id="btn-attach-active" title="Attach active file">@</button>
+                <button class="btn-primary" id="btn-send-chat">Send</button>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <div id="settings-modal" class="modal hidden">
+      <div class="modal-body modal-body-wide">
+        <h2>Settings</h2>
+
+        <div class="settings-grid">
+          <div class="settings-section">
+            <h3>Anthropic</h3>
+            <label>API Key</label>
+            <input type="password" id="input-api-key" placeholder="sk-ant-..." />
+
+            <label>Model</label>
+            <select id="select-model">
+              <option value="claude-opus-4-7">Claude Opus 4.7 — most capable</option>
+              <option value="claude-sonnet-4-6" selected>Claude Sonnet 4.6 — balanced</option>
+              <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 — fastest</option>
+            </select>
+          </div>
+
+          <div class="settings-section">
+            <h3>Reasoning</h3>
+            <label>Extended thinking <span class="settings-hint">(Sonnet/Opus only)</span></label>
+            <select id="select-thinking">
+              <option value="off" selected>Off</option>
+              <option value="low">Low — 2k thinking budget</option>
+              <option value="medium">Medium — 8k thinking budget</option>
+              <option value="high">High — 16k thinking budget</option>
+            </select>
+
+            <div class="settings-row">
+              <div>
+                <label>Max tokens <span class="settings-value" id="max-tokens-value">4096</span></label>
+                <input type="range" id="input-max-tokens" min="1024" max="32000" step="512" value="4096" />
+              </div>
+              <div>
+                <label>Temperature <span class="settings-value" id="temp-value">1.0</span></label>
+                <input type="range" id="input-temperature" min="0" max="1" step="0.05" value="1" />
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3>Behavior</h3>
+            <label>Custom system prompt <span class="settings-hint">(appended after default)</span></label>
+            <textarea id="input-system-prompt" rows="4" placeholder="e.g. Always reply in Turkish. Prefer functional style."></textarea>
+
+            <label class="settings-checkbox">
+              <input type="checkbox" id="input-enable-tools" checked />
+              <span>Enable tools (read_file, write_file, list_dir, run_command)</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn-ghost" id="btn-settings-cancel">Cancel</button>
+          <button class="btn-primary" id="btn-settings-save">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="../../node_modules/monaco-editor/min/vs/loader.js"></script>
+    <script type="module" src="renderer.js"></script>
+  </body>
+</html>

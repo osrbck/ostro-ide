@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(npm install *)",
+      "Bash(npm start *)",
+      "Bash(taskkill //F //IM electron.exe //T)",
+      "Bash(tasklist)"
+    ]
+  }
+}

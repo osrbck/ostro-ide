@@ -1,0 +1,48 @@
+{
+  "name": "ostro",
+  "version": "0.1.0",
+  "description": "Ostro — a lightweight, AI-native code editor built on Electron + Monaco + Claude.",
+  "main": "src/main/main.js",
+  "author": "osrbck",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --enable-logging",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "chokidar": "^4.0.1",
+    "monaco-editor": "^0.52.0",
+    "xterm": "^5.3.0",
+    "xterm-addon-fit": "^0.8.0",
+    "xterm-addon-web-links": "^0.9.0"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.0.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "dev.ostro.app",
+    "productName": "Ostro",
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "assets"
+    },
+    "win": { "target": ["nsis"] },
+    "mac": { "target": ["dmg"], "category": "public.app-category.developer-tools" },
+    "linux": { "target": ["AppImage", "deb"] }
+  }
+}

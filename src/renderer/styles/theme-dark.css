@@ -1,0 +1,7 @@
+.monaco-editor,
+.monaco-editor-background,
+.monaco-editor .margin {
+  background-color: var(--bg-0) !important;
+}
+.monaco-editor .line-numbers { color: var(--fg-2) !important; }
+.monaco-editor .current-line { border: none !important; background: rgba(124, 92, 255, 0.04) !important; }
