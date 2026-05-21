@@ -1,6 +1,6 @@
-# Ostro
+# Ostro IDE
 
-A lightweight, AI-native code editor.
+A lightweight, ClaudeAI-native code editor.
 
 ## Quick start
 
