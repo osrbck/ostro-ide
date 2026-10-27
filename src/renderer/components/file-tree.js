@@ -10,6 +10,46 @@ export function mountFileTree({ root, container, onOpenFile }) {
 
   const nodes = new Map();
   let activePath = null;
+  let gitStatusMap = new Map(); // normalized abs path -> git status entry
+
+  function normPath(p) {
+    return String(p).replace(/\\/g, '/');
+  }
+
+  function gitLetter(st) {
+    if (st.x === '?' && st.y === '?') return 'U';
+    const l = st.x !== ' ' && st.x !== '?' ? st.x : st.y;
+    return l && l !== ' ' ? l : 'M';
+  }
+
+  function gitClass(st) {
+    if (st.x === '?' && st.y === '?') return 'untracked';
+    if (st.x === 'A') return 'added';
+    if (st.x === 'D' || st.y === 'D') return 'deleted';
+    return 'modified';
+  }
+
+  function applyGitBadge(el, entryPath) {
+    const badge = el.querySelector('.ft-git');
+    if (!badge) return;
+    const st = gitStatusMap.get(normPath(entryPath));
+    if (!st) {
+      badge.textContent = '';
+      badge.dataset.status = '';
+      return;
+    }
+    badge.textContent = gitLetter(st);
+    badge.dataset.status = gitClass(st);
+    badge.title = `git: ${st.x}${st.y}`;
+  }
+
+  // Called by the renderer shell whenever a fresh git status arrives.
+  function updateGitStatus(map) {
+    gitStatusMap = map || new Map();
+    for (const [p, node] of nodes) {
+      if (node.el) applyGitBadge(node.el, p);
+    }
+  }
 
   function pathJoin(a, b) {
     return a.replace(/[\\/]+$/, '') + '/' + b;
@@ -36,7 +76,8 @@ export function mountFileTree({ root, container, onOpenFile }) {
     const icon = entry.isDir
       ? `<span class="ft-icon ft-icon-folder">${folderIconSvg(false)}</span>`
       : `<span class="ft-icon">${iconForFile(entry.name)}</span>`;
-    el.innerHTML = `${chev}${icon}<span class="ft-name">${escapeHtml(entry.name)}</span>`;
+    el.innerHTML = `${chev}${icon}<span class="ft-name">${escapeHtml(entry.name)}</span><span class="ft-git" aria-hidden="true"></span>`;
+    applyGitBadge(el, entry.path);
     return el;
   }
 
@@ -257,5 +298,6 @@ export function mountFileTree({ root, container, onOpenFile }) {
   return {
     destroy() { unsubscribe?.(); },
     getActive() { return activePath; },
+    updateGitStatus,
   };
 }

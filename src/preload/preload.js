@@ -38,7 +38,10 @@ contextBridge.exposeInMainWorld('ostro', {
     cancel: (id) => invoke('ai:cancel', id),
     respondApproval: (id, tool_use_id, decision) =>
       invoke('ai:approvalResponse', { id, tool_use_id, decision }),
+    testConnection: (payload) => invoke('ai:testConnection', payload),
+    approvalModes: () => invoke('ai:approvalModes'),
     onChunk: (handler) => subscribe('ai:chunk', handler),
+    onAutoApproved: (handler) => subscribe('ai:autoApproved', handler),
     onToolUse: (handler) => subscribe('ai:toolUse', handler),
     onToolResult: (handler) => subscribe('ai:toolResult', handler),
     onDone: (handler) => subscribe('ai:done', handler),
@@ -53,6 +56,29 @@ contextBridge.exposeInMainWorld('ostro', {
     kill: (id) => invoke('terminal:kill', id),
     onData: (handler) => subscribe('terminal:data', handler),
     onExit: (handler) => subscribe('terminal:exit', handler),
+  },
+
+  search: {
+    find: (payload) => invoke('search:find', payload),
+    replaceAll: (payload) => invoke('search:replaceAll', payload),
+  },
+
+  extensions: {
+    activate: () => invoke('extensions:activate'),
+    list: () => invoke('extensions:list'),
+    executeCommand: (id) => invoke('extensions:executeCommand', id),
+    fire: (name, payload) => invoke('extensions:fire', { name, payload }),
+    onState: (handler) => subscribe('extensions:state', handler),
+  },
+
+  git: {
+    status: (root) => invoke('git:status', root),
+    init: (root) => invoke('git:init', root),
+    stage: (root, paths) => invoke('git:stage', { root, paths }),
+    stageAll: (root) => invoke('git:stageAll', root),
+    unstage: (root, paths) => invoke('git:unstage', { root, paths }),
+    discard: (root, items) => invoke('git:discard', { root, items }),
+    commit: (root, message, stageAll) => invoke('git:commit', { root, message, stageAll }),
   },
 
   app: {

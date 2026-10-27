@@ -1,3 +1,5 @@
+import { detectLanguageFromPath } from '../languages/index.js';
+
 let monacoRef = null;
 let queue = [];
 let active = null;
@@ -47,8 +49,8 @@ function openDiffModal(runId, req) {
     document.body.appendChild(overlay);
 
     const host = overlay.querySelector('.diff-host');
-    const originalModel = monaco.editor.createModel(req.current ?? '', languageOf(req.path));
-    const modifiedModel = monaco.editor.createModel(req.proposed ?? '', languageOf(req.path));
+    const originalModel = monaco.editor.createModel(req.current ?? '', detectLanguageFromPath(req.path));
+    const modifiedModel = monaco.editor.createModel(req.proposed ?? '', detectLanguageFromPath(req.path));
 
     const diffEditor = monaco.editor.createDiffEditor(host, {
       theme: 'ostro-dark',
@@ -165,21 +167,6 @@ function openCommandModal(runId, req) {
 
     requestAnimationFrame(() => overlay.classList.add('show'));
   });
-}
-
-function languageOf(p) {
-  const ext = p.split('.').pop()?.toLowerCase();
-  const map = {
-    js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
-    ts: 'typescript', tsx: 'typescript',
-    py: 'python',
-    c: 'c', h: 'c', cpp: 'cpp', hpp: 'cpp', cc: 'cpp',
-    json: 'json', md: 'markdown', html: 'html', css: 'css',
-    sh: 'shell', bash: 'shell',
-    yml: 'yaml', yaml: 'yaml',
-    rs: 'rust', go: 'go', java: 'java',
-  };
-  return map[ext] || 'plaintext';
 }
 
 function escapeHtml(s) {

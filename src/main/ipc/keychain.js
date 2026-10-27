@@ -35,7 +35,13 @@ function registerKeychainHandlers(ipcMain, safeStorage) {
     const store = load();
     const enc = store[provider];
     if (!enc) return null;
-    return safeStorage.decryptString(Buffer.from(enc, 'base64'));
+    try {
+      return safeStorage.decryptString(Buffer.from(enc, 'base64'));
+    } catch {
+      // Corrupted/undecryptable entry: treat as absent instead of crashing
+      // the renderer's init sequence.
+      return null;
+    }
   });
 
   ipcMain.handle('keychain:clearApiKey', (_evt, provider) => {

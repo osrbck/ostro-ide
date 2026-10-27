@@ -19,6 +19,13 @@ function registerFsHandlers(ipcMain) {
 
   ipcMain.handle('fs:readFile', async (_evt, p) => {
     const buf = await fs.readFile(p);
+    // Refuse likely-binary files (NUL byte in the first 8KB) so the editor
+    // does not silently render mojibake for images/executables.
+    if (buf.subarray(0, 8000).includes(0)) {
+      const err = new Error('Cannot open binary file in the text editor');
+      err.code = 'EBINARY';
+      throw err;
+    }
     return buf.toString('utf8');
   });
 

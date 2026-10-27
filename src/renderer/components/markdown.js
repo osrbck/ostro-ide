@@ -63,10 +63,12 @@ function renderInline(text) {
   let out = escapeHtml(text);
   // Inline code first (highest precedence)
   out = out.replace(/`([^`]+)`/g, (_, code) => `<code class="md-icode">${code}</code>`);
-  // Links [text](url) — restrict to http(s) / file / mailto schemes
+  // Links [text](url) — restrict to http(s) / file / mailto schemes.
+  // NOTE: `out` was fully HTML-escaped above, so label and url are already
+  // attribute-safe; escaping again would double-escape & as &amp;amp;.
   out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (whole, label, url) => {
     if (/^(https?:|file:|mailto:)/i.test(url)) {
-      return `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+      return `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`;
     }
     return whole;
   });

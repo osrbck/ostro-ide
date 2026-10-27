@@ -2,6 +2,7 @@ const { TOOL_DEFINITIONS, executeTool } = require('./tools');
 
 const MAX_ITERATIONS = 10;
 const DEFAULT_MAX_TOKENS = 4096;
+const DEFAULT_SYSTEM = 'You are Ostro, an AI coding assistant inside a code editor.';
 
 function thinkingSupported(model) {
   // Extended thinking supported on Claude 4+ Sonnet and Opus, not Haiku.
@@ -9,7 +10,7 @@ function thinkingSupported(model) {
 }
 
 async function runAgentLoop({
-  client,
+  provider,
   model,
   messages,
   systemPrompt,
@@ -27,67 +28,57 @@ async function runAgentLoop({
 }) {
   let conversation = [...messages];
   let iterations = 0;
+  let textSoFar = '';
 
-  const useThinking = thinkingBudget > 0 && thinkingSupported(model);
+  const isAnthropic = provider.id === 'anthropic';
+  const useThinking = isAnthropic && thinkingBudget > 0 && thinkingSupported(model);
   const max_tokens = Math.max(maxTokens || DEFAULT_MAX_TOKENS, useThinking ? thinkingBudget + 1024 : 1024);
   // Claude API requires temperature=1 when extended thinking is enabled.
   const temp = useThinking ? 1 : (typeof temperature === 'number' ? temperature : 1);
 
+  const finish = (stopReason) => {
+    onDone?.({ text: textSoFar, stopReason, conversation });
+  };
+
   while (iterations < MAX_ITERATIONS) {
-    if (signal?.aborted) return;
+    if (signal?.aborted) {
+      finish('aborted');
+      return;
+    }
     iterations += 1;
 
-    const req = {
-      model,
-      max_tokens,
-      temperature: temp,
-      system: systemPrompt || 'You are Ostro, an AI coding assistant inside a code editor.',
-      messages: conversation,
-      tools: enableTools ? TOOL_DEFINITIONS : undefined,
-    };
-    if (useThinking) {
-      req.thinking = { type: 'enabled', budget_tokens: thinkingBudget };
+    let result;
+    try {
+      result = await provider.stream({
+        model,
+        system: systemPrompt || DEFAULT_SYSTEM,
+        messages: conversation,
+        tools: enableTools ? TOOL_DEFINITIONS : undefined,
+        maxTokens: max_tokens,
+        temperature: temp,
+        thinking: useThinking ? { type: 'enabled', budget_tokens: thinkingBudget } : undefined,
+        signal,
+        onTextDelta: (t) => { textSoFar += t; onChunk?.(t); },
+      });
+    } catch (err) {
+      // A user cancellation aborts the upstream request; surface it as a clean
+      // stop instead of an error so the UI does not get stuck in Stop mode.
+      if (signal?.aborted) {
+        finish('aborted');
+        return;
+      }
+      throw err;
+    }
+    if (signal?.aborted) {
+      finish('aborted');
+      return;
     }
 
-    const stream = client.messages.stream(req, { signal });
+    conversation.push({ role: 'assistant', content: result.content });
 
-    let textBuffer = '';
-    // Manually accumulate thinking content because some SDK versions do not
-    // populate thinking blocks in finalMessage when tool_use also occurs.
-    const thinkingAccum = {}; // block_index -> { thinking, signature }
-
-    for await (const event of stream) {
-      if (event.type === 'content_block_start' && event.content_block?.type === 'thinking') {
-        thinkingAccum[event.index] = { thinking: '', signature: '' };
-      } else if (event.type === 'content_block_delta') {
-        const d = event.delta;
-        if (d.type === 'text_delta') {
-          textBuffer += d.text;
-          onChunk?.(d.text);
-        } else if (d.type === 'thinking_delta') {
-          if (thinkingAccum[event.index]) thinkingAccum[event.index].thinking += d.thinking || '';
-        } else if (d.type === 'signature_delta') {
-          if (thinkingAccum[event.index]) thinkingAccum[event.index].signature = d.signature || '';
-        }
-      }
-    }
-
-    const finalMessage = await stream.finalMessage();
-    const assistantBlocks = finalMessage.content.map((b, i) => {
-      if (b.type === 'thinking') {
-        const acc = thinkingAccum[i] || {};
-        const thinking = b.thinking || acc.thinking || '';
-        const signature = b.signature || acc.signature || '';
-        if (!thinking) return null; // drop empty thinking blocks that the API will reject
-        return { type: 'thinking', thinking, ...(signature ? { signature } : {}) };
-      }
-      return b;
-    }).filter(Boolean);
-    conversation.push({ role: 'assistant', content: assistantBlocks });
-
-    const toolUses = assistantBlocks.filter((b) => b.type === 'tool_use');
+    const toolUses = result.content.filter((b) => b.type === 'tool_use');
     if (toolUses.length === 0) {
-      onDone?.({ text: textBuffer, stopReason: finalMessage.stop_reason });
+      finish(result.stopReason || 'end_turn');
       return;
     }
 
@@ -95,20 +86,20 @@ async function runAgentLoop({
     for (const tu of toolUses) {
       onToolUse?.({ tool_use_id: tu.id, name: tu.name, input: tu.input });
       try {
-        const result = await executeTool(tu.name, tu.input, {
+        const result2 = await executeTool(tu.name, tu.input, {
           workspaceRoot,
           requestApproval,
           toolUseId: tu.id,
           signal,
         });
         const preview = tu.name === 'run_command'
-          ? { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, truncated: result.truncated, timedOut: result.timedOut }
+          ? { stdout: result2.stdout, stderr: result2.stderr, exitCode: result2.exitCode, truncated: result2.truncated, timedOut: result2.timedOut }
           : null;
         onToolResult?.({ tool_use_id: tu.id, ok: true, preview });
         toolResults.push({
           type: 'tool_result',
           tool_use_id: tu.id,
-          content: JSON.stringify(result),
+          content: JSON.stringify(result2),
         });
       } catch (err) {
         onToolResult?.({ tool_use_id: tu.id, ok: false, error: err.message });
@@ -124,7 +115,7 @@ async function runAgentLoop({
     conversation.push({ role: 'user', content: toolResults });
   }
 
-  onDone?.({ text: '[agent loop reached max iterations]', stopReason: 'max_iterations' });
+  finish('max_iterations');
 }
 
 module.exports = { runAgentLoop };

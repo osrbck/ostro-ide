@@ -18,7 +18,11 @@ export function mountChatPanel({ container, getContext }) {
   const attachActiveBtn = container.querySelector('#btn-attach-active');
   const attachmentsEl = container.querySelector('#chat-attachments');
 
-  const history = [];
+  // Full-fidelity conversation (user turns, assistant text + tool_use blocks,
+  // tool_result turns) maintained across sends so multi-turn agent tasks keep
+  // their context. Display bubbles are independent of this.
+  const apiHistory = [];
+  let historyGeneration = 0; // bumped on Clear; stale ai:done events must not repopulate history
   const requests = new Map();
   const attached = new Map(); // path -> { rel }
   let activeRequestId = null;
@@ -238,7 +242,13 @@ export function mountChatPanel({ container, getContext }) {
     if (req.text) {
       req.textEl.classList.remove('streaming');
       req.textEl.innerHTML = renderMarkdown(req.text);
-      history.push({ role: 'assistant', content: req.text });
+    }
+    // Adopt the authoritative conversation (includes tool_use/tool_result
+    // turns and, for Claude, signed thinking blocks) for later turns —
+    // unless the user cleared the chat while this request was in flight.
+    if (Array.isArray(final?.conversation) && req.generation === historyGeneration) {
+      apiHistory.length = 0;
+      apiHistory.push(...final.conversation);
     }
     req.cursorEl.remove();
     finalizeRequest(id);
@@ -255,6 +265,21 @@ export function mountChatPanel({ container, getContext }) {
       appendStatusMessage(`⚠ ${message}`, 'error');
     }
     finalizeRequest(id);
+  });
+
+  // Auto-approved actions (auto/bypass modes) are announced inline so the
+  // user still sees what the agent did without a blocking modal.
+  window.ostro.ai.onAutoApproved(({ id, request, mode }) => {
+    const req = requests.get(id);
+    if (!req) return;
+    const label = request?.kind === 'command'
+      ? `$ ${String(request.command || '').slice(0, 80)}`
+      : `write ${request?.path || ''}`;
+    const note = document.createElement('div');
+    note.className = 'msg msg-status msg-auto-approved';
+    note.textContent = `⚡ auto-approved (${mode}): ${label}`;
+    req.toolsEl.appendChild(note);
+    scrollToBottom();
   });
 
   function finalizeRequest(id) {
@@ -305,9 +330,11 @@ export function mountChatPanel({ container, getContext }) {
     const text = input.value.trim();
     if (!text) return;
     const ctx = getContext();
-    const apiKey = await window.ostro.keychain.getApiKey('anthropic');
+    const cfg = ctx.config || {};
+    const provider = cfg.provider || 'anthropic';
+    const apiKey = await window.ostro.keychain.getApiKey(provider);
     if (!apiKey) {
-      appendStatusMessage('No API key set. Open Settings to add your Anthropic key.', 'error');
+      appendStatusMessage(`No API key set for "${provider}". Open Settings to add one.`, 'error');
       return;
     }
 
@@ -318,7 +345,7 @@ export function mountChatPanel({ container, getContext }) {
     const apiMessage = attachedContext
       ? `[Attached files]\n${attachedContext}\n\n[Question]\n${text}`
       : text;
-    history.push({ role: 'user', content: apiMessage });
+    const messages = [...apiHistory, { role: 'user', content: apiMessage }];
 
     input.value = '';
     attached.clear();
@@ -327,24 +354,26 @@ export function mountChatPanel({ container, getContext }) {
 
     const bubble = createAssistantBubble();
     const id = `r_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    const req = { id, text: '', toolCards: [], ...bubble };
+    const req = { id, text: '', toolCards: [], generation: historyGeneration, ...bubble };
     requests.set(id, req);
     activeRequestId = id;
     setSendButtonMode('stop');
 
-    const cfg = ctx.config || {};
     try {
       await window.ostro.ai.sendMessage({
         id,
+        provider,
+        baseUrl: cfg.baseUrl || '',
         apiKey,
         model: cfg.model,
-        messages: history,
+        messages,
         systemPrompt: buildSystemPrompt(ctx, cfg),
         workspaceRoot: ctx.workspaceRoot,
         enableTools: !!ctx.workspaceRoot && cfg.enableTools !== false,
         maxTokens: cfg.maxTokens,
         temperature: cfg.temperature,
         thinkingBudget: cfg.thinkingBudget || 0,
+        approvalMode: cfg.approvalMode || 'ask',
       });
     } catch (err) {
       appendStatusMessage(`⚠ ${err.message}`, 'error');
@@ -436,7 +465,8 @@ export function mountChatPanel({ container, getContext }) {
 
   clearBtn.addEventListener('click', () => {
     if (activeRequestId) window.ostro.ai.cancel(activeRequestId);
-    history.length = 0;
+    historyGeneration += 1;
+    apiHistory.length = 0;
     messagesEl.innerHTML = '';
     attached.clear();
     renderAttachments();

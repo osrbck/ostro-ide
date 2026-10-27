@@ -9,7 +9,7 @@
     <title>Ostro</title>
     <link rel="stylesheet" href="styles/main.css" />
     <link rel="stylesheet" href="styles/theme-dark.css" />
-    <link rel="stylesheet" href="../../node_modules/xterm/css/xterm.css" />
+    <link rel="stylesheet" href="../../node_modules/@xterm/xterm/css/xterm.css" />
   </head>
   <body>
     <div id="app">
@@ -18,8 +18,11 @@
           <div class="logo">ostro</div>
           <button class="btn-ghost" id="btn-open-workspace">Open Folder</button>
           <button class="btn-ghost" id="btn-settings">Settings</button>
+          <button class="btn-ghost" id="btn-toggle-terminal" title="Toggle terminal (Ctrl+`)">Terminal</button>
         </div>
         <div class="titlebar-right">
+          <span class="ext-status-host" id="ext-status-host"></span>
+          <button class="btn-ghost btn-git" id="git-branch-btn" hidden title="Git — click to open Source Control"></button>
           <span class="status" id="status">ready</span>
           <button class="btn-ghost btn-icon" id="btn-toggle-chat" title="Toggle AI panel (Ctrl+J)" aria-label="Toggle AI panel">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -34,9 +37,21 @@
 
       <main class="workbench">
         <aside class="sidebar" id="sidebar">
-          <div class="sidebar-header">EXPLORER</div>
-          <div class="file-tree" id="file-tree">
-            <div class="empty-state">No folder opened</div>
+          <div class="sidebar-tabs" role="tablist">
+            <button class="sidebar-tab active" data-view="explorer" role="tab" aria-selected="true">Explorer</button>
+            <button class="sidebar-tab" data-view="search" role="tab" aria-selected="false">Search</button>
+            <button class="sidebar-tab" data-view="scm" role="tab" aria-selected="false">Source Control</button>
+          </div>
+          <div class="sidebar-view" id="view-explorer">
+            <div class="file-tree" id="file-tree">
+              <div class="empty-state">No folder opened</div>
+            </div>
+          </div>
+          <div class="sidebar-view hidden" id="view-search">
+            <div class="search-panel" id="search-panel"></div>
+          </div>
+          <div class="sidebar-view hidden" id="view-scm">
+            <div class="scm-panel" id="scm-panel"></div>
           </div>
         </aside>
 
@@ -48,7 +63,7 @@
 
         <aside class="chat-panel" id="chat-panel">
           <div class="chat-header">
-            <span>AI · <span id="active-model">claude-sonnet-4-6</span></span>
+            <span>AI · <span id="active-model">claude-sonnet-4-6</span> · <span id="active-approval-mode" class="chat-mode" title="Agent approval mode">ask</span></span>
             <button class="btn-ghost" id="btn-clear-chat">Clear</button>
           </div>
           <div class="chat-messages" id="chat-messages"></div>
@@ -76,21 +91,32 @@
 
         <div class="settings-grid">
           <div class="settings-section">
-            <h3>Anthropic</h3>
+            <h3>AI Provider</h3>
+            <label>Provider</label>
+            <select id="select-provider">
+              <option value="anthropic" selected>Anthropic (Claude)</option>
+              <option value="openai">OpenAI-compatible — OpenAI, OpenRouter, Groq, DeepSeek, Ollama, LM Studio, custom…</option>
+            </select>
+
             <label>API Key</label>
-            <input type="password" id="input-api-key" placeholder="sk-ant-..." />
+            <input type="password" id="input-api-key" placeholder="Paste key — stored encrypted in the OS keychain" autocomplete="off" />
+
+            <label>Base URL <span class="settings-hint">(OpenAI-compatible only)</span></label>
+            <input type="text" id="input-base-url" placeholder="https://api.openai.com/v1" spellcheck="false" />
 
             <label>Model</label>
-            <select id="select-model">
-              <option value="claude-opus-4-7">Claude Opus 4.7 — most capable</option>
-              <option value="claude-sonnet-4-6" selected>Claude Sonnet 4.6 — balanced</option>
-              <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 — fastest</option>
-            </select>
+            <input type="text" id="input-model" list="model-suggestions" placeholder="e.g. claude-sonnet-4-6, gpt-4o, deepseek-chat…" spellcheck="false" />
+            <datalist id="model-suggestions"></datalist>
+
+            <div class="settings-row-test">
+              <button class="btn-ghost" id="btn-test-connection" type="button">Test connection</button>
+              <span class="settings-test-result" id="test-result"></span>
+            </div>
           </div>
 
           <div class="settings-section">
             <h3>Reasoning</h3>
-            <label>Extended thinking <span class="settings-hint">(Sonnet/Opus only)</span></label>
+            <label>Extended thinking <span class="settings-hint">(Anthropic Claude 4+ Sonnet/Opus only)</span></label>
             <select id="select-thinking">
               <option value="off" selected>Off</option>
               <option value="low">Low — 2k thinking budget</option>
@@ -111,14 +137,37 @@
           </div>
 
           <div class="settings-section">
-            <h3>Behavior</h3>
+            <h3>Agent Autonomy</h3>
+            <label>Approval mode</label>
+            <select id="select-approval-mode">
+              <option value="ask" selected>Ask — every action needs approval</option>
+              <option value="auto">Auto — file writes auto-approved, commands ask</option>
+              <option value="bypass">Bypass — auto-approve everything (dangerous)</option>
+            </select>
+            <p class="settings-warning" id="approval-warning" hidden>
+              ⚠ Bypass mode lets the agent write files and run shell commands
+              without asking. Only enable it in a trusted, disposable workspace.
+            </p>
+
             <label>Custom system prompt <span class="settings-hint">(appended after default)</span></label>
             <textarea id="input-system-prompt" rows="4" placeholder="e.g. Always reply in Turkish. Prefer functional style."></textarea>
 
             <label class="settings-checkbox">
               <input type="checkbox" id="input-enable-tools" checked />
-              <span>Enable tools (read_file, write_file, list_dir, run_command)</span>
+              <span>Enable tools (read_file, write_file, list_dir, search_files, run_command)</span>
             </label>
+          </div>
+
+          <div class="settings-section">
+            <h3>Extensions</h3>
+            <p class="settings-hint" id="ext-root-hint">Extensions load from your user data folder.</p>
+            <div class="ext-list" id="ext-list">
+              <div class="ext-empty">No extensions loaded.</div>
+            </div>
+            <div class="settings-row-test">
+              <button class="btn-ghost" id="btn-reload-extensions" type="button">Reload extensions</button>
+              <span class="settings-test-result" id="ext-reload-result"></span>
+            </div>
           </div>
         </div>
 
@@ -129,6 +178,11 @@
       </div>
     </div>
 
+    <!-- xterm UMD scripts must load BEFORE Monaco's AMD loader: loader.js
+         installs a global `define`, which would otherwise capture the xterm
+         bundles as anonymous AMD modules and throw. -->
+    <script src="../../node_modules/@xterm/xterm/lib/xterm.js"></script>
+    <script src="../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
     <script src="../../node_modules/monaco-editor/min/vs/loader.js"></script>
     <script type="module" src="renderer.js"></script>
   </body>

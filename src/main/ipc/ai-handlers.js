@@ -1,4 +1,5 @@
-const Anthropic = require('@anthropic-ai/sdk');
+const { createProvider, listModels } = require('../ai/providers');
+const { autoDecision } = require('../ai/approval-policy');
 const { runAgentLoop } = require('../agent/agent-loop');
 
 const activeRuns = new Map(); // id -> { abort, pending: Map<tool_use_id, {resolve, reject}> }
@@ -6,12 +7,13 @@ const activeRuns = new Map(); // id -> { abort, pending: Map<tool_use_id, {resol
 function registerAiHandlers(ipcMain, { getMainWindow }) {
   ipcMain.handle('ai:sendMessage', async (_evt, payload) => {
     const {
-      id, apiKey, model, messages, systemPrompt, workspaceRoot, enableTools,
-      maxTokens, temperature, thinkingBudget,
+      id, provider: providerId, apiKey, baseUrl, model, messages, systemPrompt,
+      workspaceRoot, enableTools, maxTokens, temperature, thinkingBudget, approvalMode,
     } = payload;
     if (!apiKey) throw new Error('No API key provided');
 
-    const client = new Anthropic({ apiKey });
+    const provider = createProvider({ provider: providerId || 'anthropic', apiKey, baseUrl });
+
     const abort = new AbortController();
     const pending = new Map();
     activeRuns.set(id, { abort, pending });
@@ -21,23 +23,33 @@ function registerAiHandlers(ipcMain, { getMainWindow }) {
       if (win && !win.isDestroyed()) win.webContents.send(channel, { id, ...data });
     };
 
-    const requestApproval = (req) =>
-      new Promise((resolve, reject) => {
+    // Approval policy: 'ask' always asks; 'auto' auto-approves file writes;
+    // 'bypass' auto-approves everything. Auto decisions are surfaced to the
+    // renderer so the UI can show what happened without opening a modal.
+    const requestApproval = (req) => {
+      const auto = autoDecision(approvalMode, req);
+      if (auto) {
+        emit('ai:autoApproved', { request: req, mode: auto.mode });
+        return Promise.resolve(auto);
+      }
+      return new Promise((resolve, reject) => {
         pending.set(req.tool_use_id, { resolve, reject });
         emit('ai:approvalRequest', { request: req });
       });
+    };
 
     try {
       await runAgentLoop({
-        client,
-        model: model || 'claude-sonnet-4-6',
+        provider,
+        model,
         messages,
         systemPrompt,
         workspaceRoot,
         enableTools,
         maxTokens,
         temperature,
-        thinkingBudget,
+        // Extended thinking is Anthropic-specific; never forward it elsewhere.
+        thinkingBudget: provider.id === 'anthropic' ? thinkingBudget : 0,
         signal: abort.signal,
         onChunk: (delta) => emit('ai:chunk', { delta }),
         onToolUse: (tool) => emit('ai:toolUse', { tool }),
@@ -46,7 +58,12 @@ function registerAiHandlers(ipcMain, { getMainWindow }) {
         requestApproval,
       });
     } catch (err) {
-      emit('ai:error', { message: err.message });
+      if (abort.signal.aborted) {
+        // User cancellation: finalize the run cleanly so the UI unlocks.
+        emit('ai:done', { final: { text: '', stopReason: 'aborted', conversation: messages } });
+      } else {
+        emit('ai:error', { message: err.message });
+      }
     } finally {
       for (const { reject } of pending.values()) {
         reject(new Error('Run ended before approval'));
@@ -76,6 +93,21 @@ function registerAiHandlers(ipcMain, { getMainWindow }) {
     entry.resolve(decision);
     run.pending.delete(tool_use_id);
     return true;
+  });
+
+  // Settings "Test connection": validates the key + endpoint and returns
+  // the model ids the provider advertises.
+  ipcMain.handle('ai:testConnection', async (_evt, { provider: providerId, apiKey, baseUrl }) => {
+    if (!apiKey) throw new Error('No API key provided');
+    const models = await listModels({ provider: providerId || 'anthropic', apiKey, baseUrl });
+    return { ok: true, models };
+  });
+
+  // Returns the approval policy modes so the renderer can render them
+  // without duplicating the authoritative list.
+  ipcMain.handle('ai:approvalModes', () => {
+    const { MODES, describeMode } = require('../ai/approval-policy');
+    return MODES.map((m) => ({ id: m, label: describeMode(m) }));
   });
 }
 
